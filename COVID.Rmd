@@ -1,0 +1,202 @@
+---
+title: "COVID 19 "
+author: "VincentZ"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(hms)
+library(lubridate)
+library(ggplot2)
+library(tidyverse)
+```
+
+```{r get_jhu_data, message = FALSE}
+url_in <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/"
+file_names <- c("time_series_covid19_confirmed_global.csv","time_series_covid19_deaths_global.csv", "time_series_covid19_confirmed_US.csv", "time_series_covid19_deaths_US.csv" )
+urls <- str_c(url_in, file_names)
+
+global_cases <- read_csv(urls[1])
+global_deaths <- read_csv(urls[2])
+US_cases <- read_csv(urls[3])
+US_deaths <- read_csv(urls[4])
+```
+
+```{r transformaing data}
+global_cases <- global_cases %>% 
+    pivot_longer(cols = -c('Province/State', 'Country/Region', 'Lat', 'Long'), names_to = "date", values_to = "cases") %>%
+    select (-c(Lat,Long))
+
+global_deaths <- global_deaths %>% 
+    pivot_longer(cols = -c('Province/State', 'Country/Region', 'Lat', 'Long'), names_to = "date", values_to = "deaths") %>%
+    select (-c(Lat,Long))
+
+global <- global_cases %>%
+  full_join(global_deaths)  %>%
+  rename (Country_Region = 'Country/Region',
+          Province_State = 'Province/State') %>%
+  mutate(date =  mdy(date))
+
+summary(global)
+
+
+global <- global %>% filter (cases > 0)
+summary(global)
+```
+
+
+
+```{r class_transformations}
+US_cases <- US_cases %>%
+  pivot_longer(cols = -(UID:Combined_Key),
+               names_to  = "date",
+               values_to = "cases") %>%
+  select(Admin2:cases) %>%
+  mutate(date = mdy(date)) %>%
+  select(-c(Lat, Long_))
+
+US_cases
+
+US_deaths <- US_deaths %>%
+  pivot_longer(cols = -(UID:Population),
+               names_to  = "date",
+               values_to = "deaths") %>%
+  select(Admin2:deaths) %>%
+  mutate(date = mdy(date)) %>%
+  select(-c(Lat, Long_))
+
+US_deaths
+US <- US_cases %>%
+  full_join(US_deaths)
+
+global <- global %>%
+  unite("Combined_Key",
+        c(Province_State, Country_Region),
+        sep = ", ",
+        na.rm = TRUE,
+        remove = FALSE)
+global
+```
+
+
+```{r}
+uid_lookup_url  <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
+
+uid <- read_csv(uid_lookup_url) %>%
+  select(-c(Lat, Long_, Combined_Key, code3, iso2, iso3, Admin2))
+
+global <- global %>%
+  left_join(uid, by = c("Province_State", "Country_Region")) %>%
+  select(-c(UID, FIPS))
+
+global
+
+```
+
+
+
+### I wanted to see the case per death relation so i made a scatterplot regarding global cases and deaths
+
+
+
+```{r scatter_plot}
+ggplot(global, aes(x = cases, y = deaths)) +
+  geom_point(alpha = 0.6, color = "red") + 
+  labs(
+    title = "Global COVID-19 Cases and Deaths",
+    x = "Global Cases",
+    y = "Global Deaths"
+  ) +
+  theme_minimal()
+```
+
+
+
+### I then created a linear model that sees how the correlation of hte scatterplot above with cases and deaths are in the linear model.
+
+
+
+```{r lm_model_cases_deaths}
+ggplot(global, aes(x = cases, y = deaths)) +
+  geom_point(alpha = 0.5, color = "blue") + 
+  geom_smooth(method = "lm", color = "red", se = TRUE) + 
+  labs(
+    title = "Linear Model of Global COVID-19 Cases and Deaths",
+    x = "Global Cases",
+    y = "Global Deaths"
+  ) +
+  theme_minimal()
+
+```
+
+
+
+### Another visualization on the degree of the case. as there are way more cases the death counter is not as big in a larger scale
+
+
+
+```{r time_series_cases}
+ggplot(global, aes(x = date)) +
+  geom_line(aes(y = cases, color = "Cases")) +
+  geom_line(aes(y = deaths, color = "Deaths")) +
+  labs(
+    title = "Global COVID-19 Cases and Deaths",
+    x = "Date",
+    y = "Count",
+    color = "Metric"
+  ) +
+  theme_minimal()
+
+```
+
+
+
+### I listed the top ten countries that had the most cases as well as deaths on the next one
+
+
+
+
+```{r top_ten_countries_cases}
+top_countries <- global %>%
+  group_by(Country_Region) %>%
+  summarise(total_cases = sum(cases), total_deaths = sum(deaths)) %>%
+  arrange(desc(total_cases)) %>%
+  slice(1:10)
+
+ggplot(top_countries, aes(x = reorder(Country_Region, -total_cases), y = total_cases)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(
+    title = "Top 10 Countries by Total COVID-19 Cases",
+    x = "Country",
+    y = "Total Cases"
+  ) +
+  coord_flip() +
+  theme_minimal()
+
+```
+
+
+```{r top_ten_countries_deaths}
+top_countries <- global %>%
+  group_by(Country_Region) %>%
+  summarise(total_cases = sum(cases), total_deaths = sum(deaths)) %>%
+  arrange(desc(total_deaths)) %>%
+  slice(1:10)
+
+ggplot(top_countries, aes(x = reorder(Country_Region, -total_deaths), y = total_deaths)) +
+  geom_bar(stat = "identity", fill = "red") +
+  labs(
+    title = "Top 10 Countries by Total COVID-19 Deaths",
+    x = "Country",
+    y = "Total Deaths"
+  ) +
+  coord_flip() +
+  theme_minimal()
+
+```
+
+
+
